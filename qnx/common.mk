@@ -10,12 +10,12 @@ endef
 NAME=OpenAL
 
 #===== EXTRA_INCVPATH - a space-separated list of directories to search for include files.
-PUBLIC_INCVPATH=$(PROJECT_ROOT)/include
-EXTRA_INCVPATH+=$(PROJECT_ROOT)/OpenAL32/Include
+PUBLIC_INCVPATH=$(PRODUCT_ROOT)/include
+EXTRA_INCVPATH+=$(PRODUCT_ROOT)/OpenAL32/Include
 
 #===== EXTRA_SRCVPATH - a space-separated list of directories to search for source files.
-EXTRA_SRCVPATH+=$(PROJECT_ROOT)/Alc  \
-	$(PROJECT_ROOT)/OpenAL32
+EXTRA_SRCVPATH+=$(PRODUCT_ROOT)/Alc  \
+	$(PRODUCT_ROOT)/OpenAL32
 
 INSTALLDIR=$(firstword $(INSTALLDIR_$(OS)) usr/lib)
 	

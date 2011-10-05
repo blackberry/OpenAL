@@ -23,13 +23,17 @@ DirectSound was detected.
 Source Install (for QNX from Windows):
 ======================================
 Run cmd.exe and execute the following commands:
-
 > cd [bbndk]				where [bbndk] is where the QNX NDK was installed (i.e. C:\bbndk)
 > NativeSDK-env.bat
-> cd [openal]				where [openal] is the directory where OpenAL was extracted to
+> cd [openal]/qnx			where [openal] is the directory where OpenAL was extracted to
 > make
 
-Following this, the relevant binaries should reside in the arm/ and x86/ subdirectories.
+Following this, the relevant binaries should reside in the following subdirectories:
+    libOpenAL: 
+        [openal]/qnx/arm/a.le.v7     (ARM release)
+        [openal]/qnx/arm/a.le.v7.g   (ARM debug)
+        [openal]/qnx/x86/a           (x86 simulator release)
+        [openal]/qnx/x86/a.g         (x86 simulator debug)
 
 
 Utilities
