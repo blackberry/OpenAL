@@ -201,7 +201,7 @@ AL_API ALvoid AL_APIENTRY alDeleteBuffers(ALsizei n, const ALuint *buffers)
     Failed = AL_TRUE;
     device = Context->Device;
     /* Check we are actually Deleting some Buffers */
-    if(n < 0)
+    if(n < 0 || !buffers)
         alSetError(Context, AL_INVALID_VALUE);
     else
     {

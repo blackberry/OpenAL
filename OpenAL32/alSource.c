@@ -1690,7 +1690,7 @@ AL_API ALvoid AL_APIENTRY alSourceUnqueueBuffers( ALuint source, ALsizei n, ALui
     Context = GetContextSuspended();
     if(!Context) return;
 
-    if(n < 0)
+    if(n < 0 || !buffers)
     {
         alSetError(Context, AL_INVALID_VALUE);
         goto done;
