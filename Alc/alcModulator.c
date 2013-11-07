@@ -50,21 +50,22 @@ typedef struct ALmodulatorState {
 } ALmodulatorState;
 
 #define WAVEFORM_FRACBITS  16
-#define WAVEFORM_FRACMASK  ((1<<WAVEFORM_FRACBITS)-1)
+#define WAVEFORM_FRACONE   (1<<WAVEFORM_FRACBITS)
+#define WAVEFORM_FRACMASK  (WAVEFORM_FRACONE-1)
 
-static __inline ALfloat sin_func(ALuint index)
+static __inline ALfloat Sin(ALuint index)
 {
-    return sin(index / (double)(1<<WAVEFORM_FRACBITS) * M_PI * 2.0f);
+    return aluSin(index * (F_PI*2.0f / WAVEFORM_FRACONE));
 }
 
-static __inline ALfloat saw_func(ALuint index)
+static __inline ALfloat Saw(ALuint index)
 {
-    return index*2.0f/(1<<WAVEFORM_FRACBITS) - 1.0f;
+    return index*(2.0f/WAVEFORM_FRACONE) - 1.0f;
 }
 
-static __inline ALfloat square_func(ALuint index)
+static __inline ALfloat Square(ALuint index)
 {
-    return ((index>>(WAVEFORM_FRACBITS-1))&1) ? -1.0f : 1.0f;
+    return ((index>>(WAVEFORM_FRACBITS-1))&1)*2.0f - 1.0f;
 }
 
 
@@ -81,6 +82,38 @@ static __inline ALfloat hpFilter1P(FILTER *iir, ALuint offset, ALfloat input)
 }
 
 
+#define DECL_TEMPLATE(func)                                                   \
+static void Process##func(ALmodulatorState *state, ALuint SamplesToDo,        \
+  const ALfloat *SamplesIn, ALfloat (*SamplesOut)[MAXCHANNELS])               \
+{                                                                             \
+    const ALuint step = state->step;                                          \
+    ALuint index = state->index;                                              \
+    ALfloat samp;                                                             \
+    ALuint i, k;                                                              \
+                                                                              \
+    for(i = 0;i < SamplesToDo;i++)                                            \
+    {                                                                         \
+        samp = SamplesIn[i];                                                  \
+                                                                              \
+        index += step;                                                        \
+        index &= WAVEFORM_FRACMASK;                                           \
+        samp *= func(index);                                                  \
+                                                                              \
+        samp = hpFilter1P(&state->iirFilter, 0, samp);                        \
+                                                                              \
+        for(k = 0;k < MAXCHANNELS;k++)                                        \
+            SamplesOut[i][k] += state->Gain[k] * samp;                        \
+    }                                                                         \
+    state->index = index;                                                     \
+}
+
+DECL_TEMPLATE(Sin)
+DECL_TEMPLATE(Saw)
+DECL_TEMPLATE(Square)
+
+#undef DECL_TEMPLATE
+
+
 static ALvoid ModulatorDestroy(ALeffectState *effect)
 {
     ALmodulatorState *state = (ALmodulatorState*)effect;
@@ -89,97 +122,62 @@ static ALvoid ModulatorDestroy(ALeffectState *effect)
 
 static ALboolean ModulatorDeviceUpdate(ALeffectState *effect, ALCdevice *Device)
 {
+    return AL_TRUE;
+    (void)effect;
+    (void)Device;
+}
+
+static ALvoid ModulatorUpdate(ALeffectState *effect, ALCdevice *Device, const ALeffectslot *Slot)
+{
     ALmodulatorState *state = (ALmodulatorState*)effect;
+    ALfloat gain, cw, a = 0.0f;
     ALuint index;
 
+    if(Slot->effect.Modulator.Waveform == AL_RING_MODULATOR_SINUSOID)
+        state->Waveform = SINUSOID;
+    else if(Slot->effect.Modulator.Waveform == AL_RING_MODULATOR_SAWTOOTH)
+        state->Waveform = SAWTOOTH;
+    else if(Slot->effect.Modulator.Waveform == AL_RING_MODULATOR_SQUARE)
+        state->Waveform = SQUARE;
+
+    state->step = fastf2u(Slot->effect.Modulator.Frequency*WAVEFORM_FRACONE /
+                          Device->Frequency);
+    if(state->step == 0) state->step = 1;
+
+    cw = aluCos(F_PI*2.0f * Slot->effect.Modulator.HighPassCutoff /
+                            Device->Frequency);
+    a = (2.0f-cw) - aluSqrt(aluPow(2.0f-cw, 2.0f) - 1.0f);
+    state->iirFilter.coeff = a;
+
+    gain = aluSqrt(1.0f/Device->NumChan);
+    gain *= Slot->Gain;
     for(index = 0;index < MAXCHANNELS;index++)
         state->Gain[index] = 0.0f;
     for(index = 0;index < Device->NumChan;index++)
     {
-        Channel chan = Device->Speaker2Chan[index];
-        state->Gain[chan] = 1.0f;
+        enum Channel chan = Device->Speaker2Chan[index];
+        state->Gain[chan] = gain;
     }
-
-    return AL_TRUE;
 }
 
-static ALvoid ModulatorUpdate(ALeffectState *effect, ALCcontext *Context, const ALeffect *Effect)
+static ALvoid ModulatorProcess(ALeffectState *effect, ALuint SamplesToDo, const ALfloat *SamplesIn, ALfloat (*SamplesOut)[MAXCHANNELS])
 {
     ALmodulatorState *state = (ALmodulatorState*)effect;
-    ALfloat cw, a = 0.0f;
-
-    if(Effect->Modulator.Waveform == AL_RING_MODULATOR_SINUSOID)
-        state->Waveform = SINUSOID;
-    else if(Effect->Modulator.Waveform == AL_RING_MODULATOR_SAWTOOTH)
-        state->Waveform = SAWTOOTH;
-    else if(Effect->Modulator.Waveform == AL_RING_MODULATOR_SQUARE)
-        state->Waveform = SQUARE;
-
-    state->step = Effect->Modulator.Frequency*(1<<WAVEFORM_FRACBITS) /
-                  Context->Device->Frequency;
-    if(!state->step)
-        state->step = 1;
-
-    cw = cos(2.0*M_PI * Effect->Modulator.HighPassCutoff / Context->Device->Frequency);
-    a = (2.0f-cw) - aluSqrt(aluPow(2.0f-cw, 2.0f) - 1.0f);
-    state->iirFilter.coeff = a;
-}
-
-static ALvoid ModulatorProcess(ALeffectState *effect, const ALeffectslot *Slot, ALuint SamplesToDo, const ALfloat *SamplesIn, ALfloat (*SamplesOut)[MAXCHANNELS])
-{
-    ALmodulatorState *state = (ALmodulatorState*)effect;
-    const ALfloat gain = Slot->Gain;
-    const ALuint step = state->step;
-    ALuint index = state->index;
-    ALfloat samp;
-    ALuint i;
 
     switch(state->Waveform)
     {
-    case SINUSOID:
-        for(i = 0;i < SamplesToDo;i++)
-        {
-#define FILTER_OUT(func) do {                                                 \
-    samp = SamplesIn[i];                                                      \
-                                                                              \
-    index += step;                                                            \
-    index &= WAVEFORM_FRACMASK;                                               \
-    samp *= func(index);                                                      \
-                                                                              \
-    samp = hpFilter1P(&state->iirFilter, 0, samp);                            \
-                                                                              \
-    /* Apply slot gain */                                                     \
-    samp *= gain;                                                             \
-                                                                              \
-    SamplesOut[i][FRONT_LEFT]   += state->Gain[FRONT_LEFT]   * samp;          \
-    SamplesOut[i][FRONT_RIGHT]  += state->Gain[FRONT_RIGHT]  * samp;          \
-    SamplesOut[i][FRONT_CENTER] += state->Gain[FRONT_CENTER] * samp;          \
-    SamplesOut[i][SIDE_LEFT]    += state->Gain[SIDE_LEFT]    * samp;          \
-    SamplesOut[i][SIDE_RIGHT]   += state->Gain[SIDE_RIGHT]   * samp;          \
-    SamplesOut[i][BACK_LEFT]    += state->Gain[BACK_LEFT]    * samp;          \
-    SamplesOut[i][BACK_RIGHT]   += state->Gain[BACK_RIGHT]   * samp;          \
-    SamplesOut[i][BACK_CENTER]  += state->Gain[BACK_CENTER]  * samp;          \
-} while(0)
-            FILTER_OUT(sin_func);
-        }
-        break;
+        case SINUSOID:
+            ProcessSin(state, SamplesToDo, SamplesIn, SamplesOut);
+            break;
 
-    case SAWTOOTH:
-        for(i = 0;i < SamplesToDo;i++)
-        {
-            FILTER_OUT(saw_func);
-        }
-        break;
+        case SAWTOOTH:
+            ProcessSaw(state, SamplesToDo, SamplesIn, SamplesOut);
+            break;
 
-    case SQUARE:
-        for(i = 0;i < SamplesToDo;i++)
-        {
-            FILTER_OUT(square_func);
-#undef FILTER_OUT
-        }
-        break;
+        case SQUARE:
+            ProcessSquare(state, SamplesToDo, SamplesIn, SamplesOut);
+            break;
     }
-    state->index = index;
 }
 
 ALeffectState *ModulatorCreate(void)
@@ -195,8 +193,8 @@ ALeffectState *ModulatorCreate(void)
     state->state.Update = ModulatorUpdate;
     state->state.Process = ModulatorProcess;
 
-    state->index = 0.0f;
-    state->step = 1.0f;
+    state->index = 0;
+    state->step = 1;
 
     state->iirFilter.coeff = 0.0f;
     state->iirFilter.history[0] = 0.0f;

@@ -9,12 +9,13 @@ extern "C" {
 
 typedef struct ALlistener_struct
 {
-    ALfloat Position[3];
-    ALfloat Velocity[3];
-    ALfloat Forward[3];
-    ALfloat Up[3];
-    ALfloat Gain;
-    ALfloat MetersPerUnit;
+    volatile ALfloat Position[3];
+    volatile ALfloat Velocity[3];
+    volatile ALfloat Forward[3];
+    volatile ALfloat Up[3];
+    volatile ALfloat Matrix[4][4];
+    volatile ALfloat Gain;
+    volatile ALfloat MetersPerUnit;
 } ALlistener;
 
 #ifdef __cplusplus

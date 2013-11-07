@@ -32,14 +32,13 @@
 
 static void InitFilterParams(ALfilter *filter, ALenum type);
 
-#define LookupFilter(m, k) ((ALfilter*)LookupUIntMapKey(&(m), (k)))
 
 AL_API ALvoid AL_APIENTRY alGenFilters(ALsizei n, ALuint *filters)
 {
     ALCcontext *Context;
-    ALsizei i=0;
+    ALsizei i;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return;
 
     if(n < 0 || IsBadWritePtr((void*)filters, n * sizeof(ALuint)))
@@ -49,7 +48,7 @@ AL_API ALvoid AL_APIENTRY alGenFilters(ALsizei n, ALuint *filters)
         ALCdevice *device = Context->Device;
         ALenum err;
 
-        while(i < n)
+        for(i = 0;i < n;i++)
         {
             ALfilter *filter = calloc(1, sizeof(ALfilter));
             if(!filter)
@@ -58,12 +57,14 @@ AL_API ALvoid AL_APIENTRY alGenFilters(ALsizei n, ALuint *filters)
                 alDeleteFilters(i, filters);
                 break;
             }
+            InitFilterParams(filter, AL_FILTER_NULL);
 
-            filter->filter = ALTHUNK_ADDENTRY(filter);
-            err = InsertUIntMapEntry(&device->FilterMap, filter->filter, filter);
+            err = NewThunkEntry(&filter->filter);
+            if(err == AL_NO_ERROR)
+                err = InsertUIntMapEntry(&device->FilterMap, filter->filter, filter);
             if(err != AL_NO_ERROR)
             {
-                ALTHUNK_REMOVEENTRY(filter->filter);
+                FreeThunkEntry(filter->filter);
                 memset(filter, 0, sizeof(ALfilter));
                 free(filter);
 
@@ -72,65 +73,55 @@ AL_API ALvoid AL_APIENTRY alGenFilters(ALsizei n, ALuint *filters)
                 break;
             }
 
-            filters[i++] = filter->filter;
-            InitFilterParams(filter, AL_FILTER_NULL);
+            filters[i] = filter->filter;
         }
     }
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
-AL_API ALvoid AL_APIENTRY alDeleteFilters(ALsizei n, ALuint *filters)
+AL_API ALvoid AL_APIENTRY alDeleteFilters(ALsizei n, const ALuint *filters)
 {
     ALCcontext *Context;
     ALCdevice *device;
     ALfilter *ALFilter;
-    ALboolean Failed;
     ALsizei i;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return;
 
-    Failed = AL_TRUE;
     device = Context->Device;
     if(n < 0)
         alSetError(Context, AL_INVALID_VALUE);
     else
     {
-        Failed = AL_FALSE;
         // Check that all filters are valid
         for(i = 0;i < n;i++)
         {
             if(!filters[i])
                 continue;
 
-            if(LookupFilter(device->FilterMap, filters[i]) == NULL)
+            if(LookupFilter(device, filters[i]) == NULL)
             {
                 alSetError(Context, AL_INVALID_NAME);
-                Failed = AL_TRUE;
+                n = 0;
                 break;
             }
         }
-    }
 
-    if(!Failed)
-    {
-        // All filters are valid
         for(i = 0;i < n;i++)
         {
             // Recheck that the filter is valid, because there could be duplicated names
-            if((ALFilter=LookupFilter(device->FilterMap, filters[i])) == NULL)
+            if((ALFilter=RemoveFilter(device, filters[i])) == NULL)
                 continue;
-
-            RemoveUIntMapKey(&device->FilterMap, ALFilter->filter);
-            ALTHUNK_REMOVEENTRY(ALFilter->filter);
+            FreeThunkEntry(ALFilter->filter);
 
             memset(ALFilter, 0, sizeof(ALfilter));
             free(ALFilter);
         }
     }
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
 AL_API ALboolean AL_APIENTRY alIsFilter(ALuint filter)
@@ -138,13 +129,13 @@ AL_API ALboolean AL_APIENTRY alIsFilter(ALuint filter)
     ALCcontext *Context;
     ALboolean  result;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return AL_FALSE;
 
-    result = ((!filter || LookupFilter(Context->Device->FilterMap, filter)) ?
+    result = ((!filter || LookupFilter(Context->Device, filter)) ?
               AL_TRUE : AL_FALSE);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 
     return result;
 }
@@ -155,59 +146,59 @@ AL_API ALvoid AL_APIENTRY alFilteri(ALuint filter, ALenum param, ALint iValue)
     ALCdevice  *Device;
     ALfilter   *ALFilter;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return;
 
     Device = Context->Device;
-    if((ALFilter=LookupFilter(Device->FilterMap, filter)) != NULL)
+    if((ALFilter=LookupFilter(Device, filter)) != NULL)
     {
         switch(param)
         {
         case AL_FILTER_TYPE:
-            if(iValue == AL_FILTER_NULL ||
-               iValue == AL_FILTER_LOWPASS)
+            if(iValue == AL_FILTER_NULL || iValue == AL_FILTER_LOWPASS)
                 InitFilterParams(ALFilter, iValue);
             else
                 alSetError(Context, AL_INVALID_VALUE);
             break;
 
         default:
-            alSetError(Context, AL_INVALID_ENUM);
+            /* Call the appropriate handler */
+            ALfilter_SetParami(ALFilter, Context, param, iValue);
             break;
         }
     }
     else
         alSetError(Context, AL_INVALID_NAME);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
-AL_API ALvoid AL_APIENTRY alFilteriv(ALuint filter, ALenum param, ALint *piValues)
+AL_API ALvoid AL_APIENTRY alFilteriv(ALuint filter, ALenum param, const ALint *piValues)
 {
     ALCcontext *Context;
     ALCdevice  *Device;
+    ALfilter   *ALFilter;
 
-    Context = GetContextSuspended();
+    switch(param)
+    {
+        case AL_FILTER_TYPE:
+            alFilteri(filter, param, piValues[0]);
+            return;
+    }
+
+    Context = GetContextRef();
     if(!Context) return;
 
     Device = Context->Device;
-    if(LookupFilter(Device->FilterMap, filter) != NULL)
+    if((ALFilter=LookupFilter(Device, filter)) != NULL)
     {
-        switch(param)
-        {
-        case AL_FILTER_TYPE:
-            alFilteri(filter, param, piValues[0]);
-            break;
-
-        default:
-            alSetError(Context, AL_INVALID_ENUM);
-            break;
-        }
+        /* Call the appropriate handler */
+        ALfilter_SetParamiv(ALFilter, Context, param, piValues);
     }
     else
         alSetError(Context, AL_INVALID_NAME);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
 AL_API ALvoid AL_APIENTRY alFilterf(ALuint filter, ALenum param, ALfloat flValue)
@@ -216,70 +207,40 @@ AL_API ALvoid AL_APIENTRY alFilterf(ALuint filter, ALenum param, ALfloat flValue
     ALCdevice  *Device;
     ALfilter   *ALFilter;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return;
 
     Device = Context->Device;
-    if((ALFilter=LookupFilter(Device->FilterMap, filter)) != NULL)
+    if((ALFilter=LookupFilter(Device, filter)) != NULL)
     {
-        switch(ALFilter->type)
-        {
-        case AL_FILTER_LOWPASS:
-            switch(param)
-            {
-            case AL_LOWPASS_GAIN:
-                if(flValue >= 0.0f && flValue <= 1.0f)
-                    ALFilter->Gain = flValue;
-                else
-                    alSetError(Context, AL_INVALID_VALUE);
-                break;
-
-            case AL_LOWPASS_GAINHF:
-                if(flValue >= 0.0f && flValue <= 1.0f)
-                    ALFilter->GainHF = flValue;
-                else
-                    alSetError(Context, AL_INVALID_VALUE);
-                break;
-
-            default:
-                alSetError(Context, AL_INVALID_ENUM);
-                break;
-            }
-            break;
-
-        default:
-            alSetError(Context, AL_INVALID_ENUM);
-            break;
-        }
+        /* Call the appropriate handler */
+        ALfilter_SetParamf(ALFilter, Context, param, flValue);
     }
     else
         alSetError(Context, AL_INVALID_NAME);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
-AL_API ALvoid AL_APIENTRY alFilterfv(ALuint filter, ALenum param, ALfloat *pflValues)
+AL_API ALvoid AL_APIENTRY alFilterfv(ALuint filter, ALenum param, const ALfloat *pflValues)
 {
     ALCcontext *Context;
     ALCdevice  *Device;
+    ALfilter   *ALFilter;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return;
 
     Device = Context->Device;
-    if(LookupFilter(Device->FilterMap, filter) != NULL)
+    if((ALFilter=LookupFilter(Device, filter)) != NULL)
     {
-        switch(param)
-        {
-        default:
-            alFilterf(filter, param, pflValues[0]);
-            break;
-        }
+        /* Call the appropriate handler */
+        ALfilter_SetParamfv(ALFilter, Context, param, pflValues);
     }
     else
         alSetError(Context, AL_INVALID_NAME);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
 AL_API ALvoid AL_APIENTRY alGetFilteri(ALuint filter, ALenum param, ALint *piValue)
@@ -288,11 +249,11 @@ AL_API ALvoid AL_APIENTRY alGetFilteri(ALuint filter, ALenum param, ALint *piVal
     ALCdevice  *Device;
     ALfilter   *ALFilter;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return;
 
     Device = Context->Device;
-    if((ALFilter=LookupFilter(Device->FilterMap, filter)) != NULL)
+    if((ALFilter=LookupFilter(Device, filter)) != NULL)
     {
         switch(param)
         {
@@ -301,42 +262,43 @@ AL_API ALvoid AL_APIENTRY alGetFilteri(ALuint filter, ALenum param, ALint *piVal
             break;
 
         default:
-            alSetError(Context, AL_INVALID_ENUM);
+            /* Call the appropriate handler */
+            ALfilter_GetParami(ALFilter, Context, param, piValue);
             break;
         }
     }
     else
         alSetError(Context, AL_INVALID_NAME);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
 AL_API ALvoid AL_APIENTRY alGetFilteriv(ALuint filter, ALenum param, ALint *piValues)
 {
     ALCcontext *Context;
     ALCdevice  *Device;
+    ALfilter   *ALFilter;
 
-    Context = GetContextSuspended();
+    switch(param)
+    {
+        case AL_FILTER_TYPE:
+            alGetFilteri(filter, param, piValues);
+            return;
+    }
+
+    Context = GetContextRef();
     if(!Context) return;
 
     Device = Context->Device;
-    if(LookupFilter(Device->FilterMap, filter) != NULL)
+    if((ALFilter=LookupFilter(Device, filter)) != NULL)
     {
-        switch(param)
-        {
-        case AL_FILTER_TYPE:
-            alGetFilteri(filter, param, piValues);
-            break;
-
-        default:
-            alSetError(Context, AL_INVALID_ENUM);
-            break;
-        }
+        /* Call the appropriate handler */
+        ALfilter_GetParamiv(ALFilter, Context, param, piValues);
     }
     else
         alSetError(Context, AL_INVALID_NAME);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
 AL_API ALvoid AL_APIENTRY alGetFilterf(ALuint filter, ALenum param, ALfloat *pflValue)
@@ -345,65 +307,136 @@ AL_API ALvoid AL_APIENTRY alGetFilterf(ALuint filter, ALenum param, ALfloat *pfl
     ALCdevice  *Device;
     ALfilter   *ALFilter;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return;
 
     Device = Context->Device;
-    if((ALFilter=LookupFilter(Device->FilterMap, filter)) != NULL)
+    if((ALFilter=LookupFilter(Device, filter)) != NULL)
     {
-        switch(ALFilter->type)
-        {
-        case AL_FILTER_LOWPASS:
-            switch(param)
-            {
-            case AL_LOWPASS_GAIN:
-                *pflValue = ALFilter->Gain;
-                break;
-
-            case AL_LOWPASS_GAINHF:
-                *pflValue = ALFilter->GainHF;
-                break;
-
-            default:
-                alSetError(Context, AL_INVALID_ENUM);
-                break;
-            }
-            break;
-
-        default:
-            alSetError(Context, AL_INVALID_ENUM);
-            break;
-        }
+        /* Call the appropriate handler */
+        ALfilter_GetParamf(ALFilter, Context, param, pflValue);
     }
     else
         alSetError(Context, AL_INVALID_NAME);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
 
 AL_API ALvoid AL_APIENTRY alGetFilterfv(ALuint filter, ALenum param, ALfloat *pflValues)
 {
     ALCcontext *Context;
     ALCdevice  *Device;
+    ALfilter   *ALFilter;
 
-    Context = GetContextSuspended();
+    Context = GetContextRef();
     if(!Context) return;
 
     Device = Context->Device;
-    if(LookupFilter(Device->FilterMap, filter) != NULL)
+    if((ALFilter=LookupFilter(Device, filter)) != NULL)
     {
-        switch(param)
-        {
-        default:
-            alGetFilterf(filter, param, pflValues);
-            break;
-        }
+        /* Call the appropriate handler */
+        ALfilter_GetParamfv(ALFilter, Context, param, pflValues);
     }
     else
         alSetError(Context, AL_INVALID_NAME);
 
-    ProcessContext(Context);
+    ALCcontext_DecRef(Context);
 }
+
+
+ALfloat lpCoeffCalc(ALfloat g, ALfloat cw)
+{
+    ALfloat a = 0.0f;
+
+    /* Be careful with gains < 0.001, as that causes the coefficient head
+     * towards 1, which will flatten the signal */
+    if(g < 0.9999f) /* 1-epsilon */
+    {
+        g = maxf(g, 0.001f);
+        a = (1 - g*cw - aluSqrt(2*g*(1-cw) - g*g*(1 - cw*cw))) /
+            (1 - g);
+    }
+
+    return a;
+}
+
+
+static void lp_SetParami(ALfilter *filter, ALCcontext *context, ALenum param, ALint val)
+{ (void)filter;(void)param;(void)val; alSetError(context, AL_INVALID_ENUM); }
+static void lp_SetParamiv(ALfilter *filter, ALCcontext *context, ALenum param, const ALint *vals)
+{ (void)filter;(void)param;(void)vals; alSetError(context, AL_INVALID_ENUM); }
+static void lp_SetParamf(ALfilter *filter, ALCcontext *context, ALenum param, ALfloat val)
+{
+    switch(param)
+    {
+        case AL_LOWPASS_GAIN:
+            if(val >= AL_LOWPASS_MIN_GAIN && val <= AL_LOWPASS_MAX_GAIN)
+                filter->Gain = val;
+            else
+                alSetError(context, AL_INVALID_VALUE);
+            break;
+
+        case AL_LOWPASS_GAINHF:
+            if(val >= AL_LOWPASS_MIN_GAINHF && val <= AL_LOWPASS_MAX_GAINHF)
+                filter->GainHF = val;
+            else
+                alSetError(context, AL_INVALID_VALUE);
+            break;
+
+        default:
+            alSetError(context, AL_INVALID_ENUM);
+            break;
+    }
+}
+static void lp_SetParamfv(ALfilter *filter, ALCcontext *context, ALenum param, const ALfloat *vals)
+{
+    lp_SetParamf(filter, context, param, vals[0]);
+}
+
+static void lp_GetParami(ALfilter *filter, ALCcontext *context, ALenum param, ALint *val)
+{ (void)filter;(void)param;(void)val; alSetError(context, AL_INVALID_ENUM); }
+static void lp_GetParamiv(ALfilter *filter, ALCcontext *context, ALenum param, ALint *vals)
+{ (void)filter;(void)param;(void)vals; alSetError(context, AL_INVALID_ENUM); }
+static void lp_GetParamf(ALfilter *filter, ALCcontext *context, ALenum param, ALfloat *val)
+{
+    switch(param)
+    {
+        case AL_LOWPASS_GAIN:
+            *val = filter->Gain;
+            break;
+
+        case AL_LOWPASS_GAINHF:
+            *val = filter->GainHF;
+            break;
+
+        default:
+            alSetError(context, AL_INVALID_ENUM);
+            break;
+    }
+}
+static void lp_GetParamfv(ALfilter *filter, ALCcontext *context, ALenum param, ALfloat *vals)
+{
+    lp_GetParamf(filter, context, param, vals);
+}
+
+
+static void null_SetParami(ALfilter *filter, ALCcontext *context, ALenum param, ALint val)
+{ (void)filter;(void)param;(void)val; alSetError(context, AL_INVALID_ENUM); }
+static void null_SetParamiv(ALfilter *filter, ALCcontext *context, ALenum param, const ALint *vals)
+{ (void)filter;(void)param;(void)vals; alSetError(context, AL_INVALID_ENUM); }
+static void null_SetParamf(ALfilter *filter, ALCcontext *context, ALenum param, ALfloat val)
+{ (void)filter;(void)param;(void)val; alSetError(context, AL_INVALID_ENUM); }
+static void null_SetParamfv(ALfilter *filter, ALCcontext *context, ALenum param, const ALfloat *vals)
+{ (void)filter;(void)param;(void)vals; alSetError(context, AL_INVALID_ENUM); }
+
+static void null_GetParami(ALfilter *filter, ALCcontext *context, ALenum param, ALint *val)
+{ (void)filter;(void)param;(void)val; alSetError(context, AL_INVALID_ENUM); }
+static void null_GetParamiv(ALfilter *filter, ALCcontext *context, ALenum param, ALint *vals)
+{ (void)filter;(void)param;(void)vals; alSetError(context, AL_INVALID_ENUM); }
+static void null_GetParamf(ALfilter *filter, ALCcontext *context, ALenum param, ALfloat *val)
+{ (void)filter;(void)param;(void)val; alSetError(context, AL_INVALID_ENUM); }
+static void null_GetParamfv(ALfilter *filter, ALCcontext *context, ALenum param, ALfloat *vals)
+{ (void)filter;(void)param;(void)vals; alSetError(context, AL_INVALID_ENUM); }
 
 
 ALvoid ReleaseALFilters(ALCdevice *device)
@@ -415,7 +448,7 @@ ALvoid ReleaseALFilters(ALCdevice *device)
         device->FilterMap.array[i].value = NULL;
 
         // Release filter structure
-        ALTHUNK_REMOVEENTRY(temp->filter);
+        FreeThunkEntry(temp->filter);
         memset(temp, 0, sizeof(ALfilter));
         free(temp);
     }
@@ -424,8 +457,30 @@ ALvoid ReleaseALFilters(ALCdevice *device)
 
 static void InitFilterParams(ALfilter *filter, ALenum type)
 {
-    filter->type = type;
+    if(type == AL_FILTER_LOWPASS)
+    {
+        filter->Gain = AL_LOWPASS_DEFAULT_GAIN;
+        filter->GainHF = AL_LOWPASS_DEFAULT_GAINHF;
 
-    filter->Gain = 1.0;
-    filter->GainHF = 1.0;
+        filter->SetParami  = lp_SetParami;
+        filter->SetParamiv = lp_SetParamiv;
+        filter->SetParamf  = lp_SetParamf;
+        filter->SetParamfv = lp_SetParamfv;
+        filter->GetParami  = lp_GetParami;
+        filter->GetParamiv = lp_GetParamiv;
+        filter->GetParamf  = lp_GetParamf;
+        filter->GetParamfv = lp_GetParamfv;
+    }
+    else
+    {
+        filter->SetParami  = null_SetParami;
+        filter->SetParamiv = null_SetParamiv;
+        filter->SetParamf  = null_SetParamf;
+        filter->SetParamfv = null_SetParamfv;
+        filter->GetParami  = null_GetParami;
+        filter->GetParamiv = null_GetParamiv;
+        filter->GetParamf  = null_GetParamf;
+        filter->GetParamfv = null_GetParamfv;
+    }
+    filter->type = type;
 }

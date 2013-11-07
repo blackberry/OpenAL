@@ -17,27 +17,9 @@ typedef struct {
 #endif
 } FILTER;
 
-static __inline ALfloat lpFilter4P(FILTER *iir, ALuint offset, ALfloat input)
-{
-    ALfloat *history = &iir->history[offset];
-    ALfloat a = iir->coeff;
-    ALfloat output = input;
-
-    output = output + (history[0]-output)*a;
-    history[0] = output;
-    output = output + (history[1]-output)*a;
-    history[1] = output;
-    output = output + (history[2]-output)*a;
-    history[2] = output;
-    output = output + (history[3]-output)*a;
-    history[3] = output;
-
-    return output;
-}
-
 static __inline ALfloat lpFilter2P(FILTER *iir, ALuint offset, ALfloat input)
 {
-    ALfloat *history = &iir->history[offset];
+    ALfloat *history = &iir->history[offset*2];
     ALfloat a = iir->coeff;
     ALfloat output = input;
 
@@ -48,7 +30,6 @@ static __inline ALfloat lpFilter2P(FILTER *iir, ALuint offset, ALfloat input)
 
     return output;
 }
-
 static __inline ALfloat lpFilter1P(FILTER *iir, ALuint offset, ALfloat input)
 {
     ALfloat *history = &iir->history[offset];
@@ -61,23 +42,9 @@ static __inline ALfloat lpFilter1P(FILTER *iir, ALuint offset, ALfloat input)
     return output;
 }
 
-static __inline ALfloat lpFilter4PC(const FILTER *iir, ALuint offset, ALfloat input)
-{
-    const ALfloat *history = &iir->history[offset];
-    ALfloat a = iir->coeff;
-    ALfloat output = input;
-
-    output = output + (history[0]-output)*a;
-    output = output + (history[1]-output)*a;
-    output = output + (history[2]-output)*a;
-    output = output + (history[3]-output)*a;
-
-    return output;
-}
-
 static __inline ALfloat lpFilter2PC(const FILTER *iir, ALuint offset, ALfloat input)
 {
-    const ALfloat *history = &iir->history[offset];
+    const ALfloat *history = &iir->history[offset*2];
     ALfloat a = iir->coeff;
     ALfloat output = input;
 
@@ -86,7 +53,6 @@ static __inline ALfloat lpFilter2PC(const FILTER *iir, ALuint offset, ALfloat in
 
     return output;
 }
-
 static __inline ALfloat lpFilter1PC(FILTER *iir, ALuint offset, ALfloat input)
 {
     const ALfloat *history = &iir->history[offset];
@@ -101,33 +67,39 @@ static __inline ALfloat lpFilter1PC(FILTER *iir, ALuint offset, ALfloat input)
 /* Calculates the low-pass filter coefficient given the pre-scaled gain and
  * cos(w) value. Note that g should be pre-scaled (sqr(gain) for one-pole,
  * sqrt(gain) for four-pole, etc) */
-static __inline ALfloat lpCoeffCalc(ALfloat g, ALfloat cw)
-{
-    ALfloat a = 0.0f;
-
-    /* Be careful with gains < 0.01, as that causes the coefficient
-     * head towards 1, which will flatten the signal */
-    g = __max(g, 0.01f);
-    if(g < 0.9999f) /* 1-epsilon */
-        a = (1 - g*cw - aluSqrt(2*g*(1-cw) - g*g*(1 - cw*cw))) /
-            (1 - g);
-
-    return a;
-}
+ALfloat lpCoeffCalc(ALfloat g, ALfloat cw);
 
 
-typedef struct ALfilter
-{
+typedef struct ALfilter {
     // Filter type (AL_FILTER_NULL, ...)
     ALenum type;
 
     ALfloat Gain;
     ALfloat GainHF;
 
+    void (*SetParami)(struct ALfilter *filter, ALCcontext *context, ALenum param, ALint val);
+    void (*SetParamiv)(struct ALfilter *filter, ALCcontext *context, ALenum param, const ALint *vals);
+    void (*SetParamf)(struct ALfilter *filter, ALCcontext *context, ALenum param, ALfloat val);
+    void (*SetParamfv)(struct ALfilter *filter, ALCcontext *context, ALenum param, const ALfloat *vals);
+
+    void (*GetParami)(struct ALfilter *filter, ALCcontext *context, ALenum param, ALint *val);
+    void (*GetParamiv)(struct ALfilter *filter, ALCcontext *context, ALenum param, ALint *vals);
+    void (*GetParamf)(struct ALfilter *filter, ALCcontext *context, ALenum param, ALfloat *val);
+    void (*GetParamfv)(struct ALfilter *filter, ALCcontext *context, ALenum param, ALfloat *vals);
+
     // Index to itself
     ALuint filter;
 } ALfilter;
 
+#define ALfilter_SetParami(x, c, p, v)  ((x)->SetParami((x),(c),(p),(v)))
+#define ALfilter_SetParamiv(x, c, p, v) ((x)->SetParamiv((x),(c),(p),(v)))
+#define ALfilter_SetParamf(x, c, p, v)  ((x)->SetParamf((x),(c),(p),(v)))
+#define ALfilter_SetParamfv(x, c, p, v) ((x)->SetParamfv((x),(c),(p),(v)))
+
+#define ALfilter_GetParami(x, c, p, v)  ((x)->GetParami((x),(c),(p),(v)))
+#define ALfilter_GetParamiv(x, c, p, v) ((x)->GetParamiv((x),(c),(p),(v)))
+#define ALfilter_GetParamf(x, c, p, v)  ((x)->GetParamf((x),(c),(p),(v)))
+#define ALfilter_GetParamfv(x, c, p, v) ((x)->GetParamfv((x),(c),(p),(v)))
 
 ALvoid ReleaseALFilters(ALCdevice *device);
 

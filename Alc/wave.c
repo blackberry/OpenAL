@@ -87,14 +87,9 @@ static ALuint WaveProc(ALvoid *ptr)
     ALuint now, start;
     ALuint64 avail, done;
     size_t fs;
-    union {
-        short s;
-        char b[sizeof(short)];
-    } uSB;
     const ALuint restTime = (ALuint64)pDevice->UpdateSize * 1000 /
                             pDevice->Frequency / 2;
 
-    uSB.s = 1;
     frameSize = FrameSizeFromDevFmt(pDevice->FmtChans, pDevice->FmtType);
 
     done = 0;
@@ -106,9 +101,9 @@ static ALuint WaveProc(ALvoid *ptr)
         avail = (ALuint64)(now-start) * pDevice->Frequency / 1000;
         if(avail < done)
         {
-            /* Timer wrapped. Add the remainder of the cycle to the available
-             * count and reset the number of samples done */
-            avail += (ALuint64)0xFFFFFFFFu*pDevice->Frequency/1000 - done;
+            /* Timer wrapped (50 days???). Add the remainder of the cycle to
+             * the available count and reset the number of samples done */
+            avail += ((ALuint64)1<<32)*pDevice->Frequency/1000 - done;
             done = 0;
         }
         if(avail-done < pDevice->UpdateSize)
@@ -122,7 +117,7 @@ static ALuint WaveProc(ALvoid *ptr)
             aluMixData(pDevice, data->buffer, pDevice->UpdateSize);
             done += pDevice->UpdateSize;
 
-            if(uSB.b[0] != 1)
+            if(!IS_LITTLE_ENDIAN)
             {
                 ALuint bytesize = BytesFromDevFmt(pDevice->FmtType);
                 ALubyte *bytes = data->buffer;
@@ -149,7 +144,7 @@ static ALuint WaveProc(ALvoid *ptr)
                             data->f);
             if(ferror(data->f))
             {
-                AL_PRINT("Error writing to file\n");
+                ERR("Error writing to file\n");
                 aluHandleDisconnect(pDevice);
                 break;
             }
@@ -159,19 +154,19 @@ static ALuint WaveProc(ALvoid *ptr)
     return 0;
 }
 
-static ALCboolean wave_open_playback(ALCdevice *device, const ALCchar *deviceName)
+static ALCenum wave_open_playback(ALCdevice *device, const ALCchar *deviceName)
 {
     wave_data *data;
     const char *fname;
 
     fname = GetConfigValue("wave", "file", "");
     if(!fname[0])
-        return ALC_FALSE;
+        return ALC_INVALID_VALUE;
 
     if(!deviceName)
         deviceName = waveDevice;
     else if(strcmp(deviceName, waveDevice) != 0)
-        return ALC_FALSE;
+        return ALC_INVALID_VALUE;
 
     data = (wave_data*)calloc(1, sizeof(wave_data));
 
@@ -179,13 +174,13 @@ static ALCboolean wave_open_playback(ALCdevice *device, const ALCchar *deviceNam
     if(!data->f)
     {
         free(data);
-        AL_PRINT("Could not open file '%s': %s\n", fname, strerror(errno));
-        return ALC_FALSE;
+        ERR("Could not open file '%s': %s\n", fname, strerror(errno));
+        return ALC_INVALID_VALUE;
     }
 
     device->szDeviceName = strdup(deviceName);
     device->ExtraData = data;
-    return ALC_TRUE;
+    return ALC_NO_ERROR;
 }
 
 static void wave_close_playback(ALCdevice *device)
@@ -214,8 +209,12 @@ static ALCboolean wave_reset_playback(ALCdevice *device)
         case DevFmtUShort:
             device->FmtType = DevFmtShort;
             break;
+        case DevFmtUInt:
+            device->FmtType = DevFmtInt;
+            break;
         case DevFmtUByte:
         case DevFmtShort:
+        case DevFmtInt:
         case DevFmtFloat:
             break;
     }
@@ -256,21 +255,27 @@ static ALCboolean wave_reset_playback(ALCdevice *device)
 
     if(ferror(data->f))
     {
-        AL_PRINT("Error writing header: %s\n", strerror(errno));
+        ERR("Error writing header: %s\n", strerror(errno));
         return ALC_FALSE;
     }
-
     data->DataStart = ftell(data->f);
 
-    data->size = device->UpdateSize * channels * bits / 8;
+    SetDefaultWFXChannelOrder(device);
+
+    return ALC_TRUE;
+}
+
+static ALCboolean wave_start_playback(ALCdevice *device)
+{
+    wave_data *data = (wave_data*)device->ExtraData;
+
+    data->size = device->UpdateSize * FrameSizeFromDevFmt(device->FmtChans, device->FmtType);
     data->buffer = malloc(data->size);
     if(!data->buffer)
     {
-        AL_PRINT("buffer malloc failed\n");
+        ERR("Buffer malloc failed\n");
         return ALC_FALSE;
     }
-
-    SetDefaultWFXChannelOrder(device);
 
     data->thread = StartThread(WaveProc, device);
     if(data->thread == NULL)
@@ -313,20 +318,13 @@ static void wave_stop_playback(ALCdevice *device)
 }
 
 
-static ALCboolean wave_open_capture(ALCdevice *pDevice, const ALCchar *deviceName)
-{
-    (void)pDevice;
-    (void)deviceName;
-    return ALC_FALSE;
-}
-
-
-BackendFuncs wave_funcs = {
+static const BackendFuncs wave_funcs = {
     wave_open_playback,
     wave_close_playback,
     wave_reset_playback,
+    wave_start_playback,
     wave_stop_playback,
-    wave_open_capture,
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -334,22 +332,27 @@ BackendFuncs wave_funcs = {
     NULL
 };
 
-void alc_wave_init(BackendFuncs *func_list)
+ALCboolean alc_wave_init(BackendFuncs *func_list)
 {
     *func_list = wave_funcs;
+    return ALC_TRUE;
 }
 
 void alc_wave_deinit(void)
 {
 }
 
-void alc_wave_probe(int type)
+void alc_wave_probe(enum DevProbe type)
 {
     if(!ConfigValueExists("wave", "file"))
         return;
 
-    if(type == DEVICE_PROBE)
-        AppendDeviceList(waveDevice);
-    else if(type == ALL_DEVICE_PROBE)
-        AppendAllDeviceList(waveDevice);
+    switch(type)
+    {
+        case ALL_DEVICE_PROBE:
+            AppendAllDeviceList(waveDevice);
+            break;
+        case CAPTURE_DEVICE_PROBE:
+            break;
+    }
 }
