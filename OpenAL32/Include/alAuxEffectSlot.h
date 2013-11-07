@@ -15,9 +15,10 @@ typedef struct ALeffectslot
 {
     ALeffect effect;
 
-    ALfloat Gain;
-    ALboolean AuxSendAuto;
+    volatile ALfloat   Gain;
+    volatile ALboolean AuxSendAuto;
 
+    volatile ALenum NeedsUpdate;
     ALeffectState *EffectState;
 
     ALfloat WetBuffer[BUFFERSIZE];
@@ -25,7 +26,7 @@ typedef struct ALeffectslot
     ALfloat ClickRemoval[1];
     ALfloat PendingClicks[1];
 
-    ALuint refcount;
+    RefCount ref;
 
     // Index to itself
     ALuint effectslot;
@@ -34,27 +35,28 @@ typedef struct ALeffectslot
 } ALeffectslot;
 
 
+ALenum InitEffectSlot(ALeffectslot *slot);
 ALvoid ReleaseALAuxiliaryEffectSlots(ALCcontext *Context);
-
 
 struct ALeffectState {
     ALvoid (*Destroy)(ALeffectState *State);
     ALboolean (*DeviceUpdate)(ALeffectState *State, ALCdevice *Device);
-    ALvoid (*Update)(ALeffectState *State, ALCcontext *Context, const ALeffect *Effect);
-    ALvoid (*Process)(ALeffectState *State, const ALeffectslot *Slot, ALuint SamplesToDo, const ALfloat *SamplesIn, ALfloat (*SamplesOut)[MAXCHANNELS]);
+    ALvoid (*Update)(ALeffectState *State, ALCdevice *Device, const ALeffectslot *Slot);
+    ALvoid (*Process)(ALeffectState *State, ALuint SamplesToDo, const ALfloat *SamplesIn, ALfloat (*SamplesOut)[MAXCHANNELS]);
 };
 
 ALeffectState *NoneCreate(void);
-ALeffectState *EAXVerbCreate(void);
-ALeffectState *VerbCreate(void);
+ALeffectState *ReverbCreate(void);
 ALeffectState *EchoCreate(void);
 ALeffectState *ModulatorCreate(void);
+ALeffectState *DedicatedCreate(void);
 
-#define ALEffect_Destroy(a)         ((a)->Destroy((a)))
-#define ALEffect_DeviceUpdate(a,b)  ((a)->DeviceUpdate((a),(b)))
-#define ALEffect_Update(a,b,c)      ((a)->Update((a),(b),(c)))
-#define ALEffect_Process(a,b,c,d,e) ((a)->Process((a),(b),(c),(d),(e)))
+#define ALeffectState_Destroy(a)        ((a)->Destroy((a)))
+#define ALeffectState_DeviceUpdate(a,b) ((a)->DeviceUpdate((a),(b)))
+#define ALeffectState_Update(a,b,c)     ((a)->Update((a),(b),(c)))
+#define ALeffectState_Process(a,b,c,d)  ((a)->Process((a),(b),(c),(d)))
 
+ALenum InitializeEffect(ALCdevice *Device, ALeffectslot *EffectSlot, ALeffect *effect);
 
 #ifdef __cplusplus
 }

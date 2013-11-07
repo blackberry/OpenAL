@@ -29,7 +29,6 @@
 #include "alFilter.h"
 #include "alEffect.h"
 #include "alAuxEffectSlot.h"
-#include "alDatabuffer.h"
 #include "alSource.h"
 #include "alBuffer.h"
 #include "AL/al.h"
@@ -76,6 +75,7 @@ static const ALenums enumeration[] = {
     { "AL_STREAMING",                         AL_STREAMING                        },
     { "AL_UNDETERMINED",                      AL_UNDETERMINED                     },
     { "AL_METERS_PER_UNIT",                   AL_METERS_PER_UNIT                  },
+    { "AL_DIRECT_CHANNELS_SOFT",              AL_DIRECT_CHANNELS_SOFT             },
 
     // Source EFX Properties
     { "AL_DIRECT_FILTER",                     AL_DIRECT_FILTER                    },
@@ -127,20 +127,70 @@ static const ALenums enumeration[] = {
     { "AL_FORMAT_REAR16",                     AL_FORMAT_REAR16                    },
     { "AL_FORMAT_REAR32",                     AL_FORMAT_REAR32                    },
     { "AL_FORMAT_MONO_MULAW",                 AL_FORMAT_MONO_MULAW                },
-    { "AL_FORMAT_MONO_MULAW_EXT",             AL_FORMAT_MONO_MULAW                },
+    { "AL_FORMAT_MONO_MULAW_EXT",             AL_FORMAT_MONO_MULAW_EXT            },
     { "AL_FORMAT_STEREO_MULAW",               AL_FORMAT_STEREO_MULAW              },
-    { "AL_FORMAT_STEREO_MULAW_EXT",           AL_FORMAT_STEREO_MULAW              },
+    { "AL_FORMAT_STEREO_MULAW_EXT",           AL_FORMAT_STEREO_MULAW_EXT          },
     { "AL_FORMAT_QUAD_MULAW",                 AL_FORMAT_QUAD_MULAW                },
     { "AL_FORMAT_51CHN_MULAW",                AL_FORMAT_51CHN_MULAW               },
     { "AL_FORMAT_61CHN_MULAW",                AL_FORMAT_61CHN_MULAW               },
     { "AL_FORMAT_71CHN_MULAW",                AL_FORMAT_71CHN_MULAW               },
     { "AL_FORMAT_REAR_MULAW",                 AL_FORMAT_REAR_MULAW                },
+    { "AL_FORMAT_MONO_ALAW_EXT",              AL_FORMAT_MONO_ALAW_EXT             },
+    { "AL_FORMAT_STEREO_ALAW_EXT",            AL_FORMAT_STEREO_ALAW_EXT           },
+
+    // Internal Buffer Formats
+    { "AL_MONO8_SOFT",                        AL_MONO8_SOFT                       },
+    { "AL_MONO16_SOFT",                       AL_MONO16_SOFT                      },
+    { "AL_MONO32F_SOFT",                      AL_MONO32F_SOFT                     },
+    { "AL_STEREO8_SOFT",                      AL_STEREO8_SOFT                     },
+    { "AL_STEREO16_SOFT",                     AL_STEREO16_SOFT                    },
+    { "AL_STEREO32F_SOFT",                    AL_STEREO32F_SOFT                   },
+    { "AL_QUAD8_SOFT",                        AL_QUAD8_SOFT                       },
+    { "AL_QUAD16_SOFT",                       AL_QUAD16_SOFT                      },
+    { "AL_QUAD32F_SOFT",                      AL_QUAD32F_SOFT                     },
+    { "AL_REAR8_SOFT",                        AL_REAR8_SOFT                       },
+    { "AL_REAR16_SOFT",                       AL_REAR16_SOFT                      },
+    { "AL_REAR32F_SOFT",                      AL_REAR32F_SOFT                     },
+    { "AL_5POINT1_8_SOFT",                    AL_5POINT1_8_SOFT                   },
+    { "AL_5POINT1_16_SOFT",                   AL_5POINT1_16_SOFT                  },
+    { "AL_5POINT1_32F_SOFT",                  AL_5POINT1_32F_SOFT                 },
+    { "AL_6POINT1_8_SOFT",                    AL_6POINT1_8_SOFT                   },
+    { "AL_6POINT1_16_SOFT",                   AL_6POINT1_16_SOFT                  },
+    { "AL_6POINT1_32F_SOFT",                  AL_6POINT1_32F_SOFT                 },
+    { "AL_7POINT1_8_SOFT",                    AL_7POINT1_8_SOFT                   },
+    { "AL_7POINT1_16_SOFT",                   AL_7POINT1_16_SOFT                  },
+    { "AL_7POINT1_32F_SOFT",                  AL_7POINT1_32F_SOFT                 },
+
+    // Buffer Channel Configurations
+    { "AL_MONO_SOFT",                         AL_MONO_SOFT                        },
+    { "AL_STEREO_SOFT",                       AL_STEREO_SOFT                      },
+    { "AL_QUAD_SOFT",                         AL_QUAD_SOFT                        },
+    { "AL_REAR_SOFT",                         AL_REAR_SOFT                        },
+    { "AL_5POINT1_SOFT",                      AL_5POINT1_SOFT                     },
+    { "AL_6POINT1_SOFT",                      AL_6POINT1_SOFT                     },
+    { "AL_7POINT1_SOFT",                      AL_7POINT1_SOFT                     },
+
+    // Buffer Sample Types
+    { "AL_BYTE_SOFT",                         AL_BYTE_SOFT                        },
+    { "AL_UNSIGNED_BYTE_SOFT",                AL_UNSIGNED_BYTE_SOFT               },
+    { "AL_SHORT_SOFT",                        AL_SHORT_SOFT                       },
+    { "AL_UNSIGNED_SHORT_SOFT",               AL_UNSIGNED_SHORT_SOFT              },
+    { "AL_INT_SOFT",                          AL_INT_SOFT                         },
+    { "AL_UNSIGNED_INT_SOFT",                 AL_UNSIGNED_INT_SOFT                },
+    { "AL_FLOAT_SOFT",                        AL_FLOAT_SOFT                       },
+    { "AL_DOUBLE_SOFT",                       AL_DOUBLE_SOFT                      },
+    { "AL_BYTE3_SOFT",                        AL_BYTE3_SOFT                       },
+    { "AL_UNSIGNED_BYTE3_SOFT",               AL_UNSIGNED_BYTE3_SOFT              },
 
     // Buffer attributes
     { "AL_FREQUENCY",                         AL_FREQUENCY                        },
     { "AL_BITS",                              AL_BITS                             },
     { "AL_CHANNELS",                          AL_CHANNELS                         },
     { "AL_SIZE",                              AL_SIZE                             },
+    { "AL_INTERNAL_FORMAT_SOFT",              AL_INTERNAL_FORMAT_SOFT             },
+    { "AL_BYTE_LENGTH_SOFT",                  AL_BYTE_LENGTH_SOFT                 },
+    { "AL_SAMPLE_LENGTH_SOFT",                AL_SAMPLE_LENGTH_SOFT               },
+    { "AL_SEC_LENGTH_SOFT",                   AL_SEC_LENGTH_SOFT                  },
 
     // Buffer States (not supported yet)
     { "AL_UNUSED",                            AL_UNUSED                           },
@@ -167,6 +217,7 @@ static const ALenums enumeration[] = {
     { "AL_DISTANCE_MODEL",                    AL_DISTANCE_MODEL                   },
     { "AL_SPEED_OF_SOUND",                    AL_SPEED_OF_SOUND                   },
     { "AL_SOURCE_DISTANCE_MODEL",             AL_SOURCE_DISTANCE_MODEL            },
+    { "AL_DEFERRED_UPDATES_SOFT",             AL_DEFERRED_UPDATES_SOFT            },
 
     // Distance Models
     { "AL_INVERSE_DISTANCE",                  AL_INVERSE_DISTANCE                 },
@@ -211,6 +262,8 @@ static const ALenums enumeration[] = {
     { "AL_EFFECT_COMPRESSOR",                 AL_EFFECT_COMPRESSOR                },
     { "AL_EFFECT_EQUALIZER",                  AL_EFFECT_EQUALIZER                 },
 #endif
+    { "AL_EFFECT_DEDICATED_LOW_FREQUENCY_EFFECT",AL_EFFECT_DEDICATED_LOW_FREQUENCY_EFFECT},
+    { "AL_EFFECT_DEDICATED_DIALOGUE",         AL_EFFECT_DEDICATED_DIALOGUE        },
 
     // Reverb params
     { "AL_REVERB_DENSITY",                    AL_REVERB_DENSITY                   },
@@ -264,50 +317,60 @@ static const ALenums enumeration[] = {
     { "AL_RING_MODULATOR_HIGHPASS_CUTOFF",    AL_RING_MODULATOR_HIGHPASS_CUTOFF   },
     { "AL_RING_MODULATOR_WAVEFORM",           AL_RING_MODULATOR_WAVEFORM          },
 
+    // Dedicated Dialogue/LFE params
+    { "AL_DEDICATED_GAIN",                    AL_DEDICATED_GAIN                   },
+
 
     // Default
     { NULL,                                   (ALenum)0                           }
 };
 
 
+const struct EffectList EffectList[] = {
+    { "eaxreverb", EAXREVERB, "AL_EFFECT_EAXREVERB",      AL_EFFECT_EAXREVERB },
+    { "reverb",    REVERB,    "AL_EFFECT_REVERB",         AL_EFFECT_REVERB },
+    { "echo",      ECHO,      "AL_EFFECT_ECHO",           AL_EFFECT_ECHO },
+    { "modulator", MODULATOR, "AL_EFFECT_RING_MODULATOR", AL_EFFECT_RING_MODULATOR },
+    { "dedicated", DEDICATED, "AL_EFFECT_DEDICATED_LOW_FREQUENCY_EFFECT", AL_EFFECT_DEDICATED_LOW_FREQUENCY_EFFECT },
+    { "dedicated", DEDICATED, "AL_EFFECT_DEDICATED_DIALOGUE", AL_EFFECT_DEDICATED_DIALOGUE },
+    { NULL, 0, NULL, (ALenum)0 }
+};
+
 
 AL_API ALboolean AL_APIENTRY alIsExtensionPresent(const ALchar *extName)
 {
     ALboolean bIsSupported = AL_FALSE;
-    ALCcontext *pContext;
+    ALCcontext *Context;
     const char *ptr;
     size_t len;
 
-    pContext = GetContextSuspended();
-    if(!pContext) return AL_FALSE;
+    Context = GetContextRef();
+    if(!Context) return AL_FALSE;
 
     if(!extName)
+        alSetError(Context, AL_INVALID_VALUE);
+    else
     {
-        alSetError(pContext, AL_INVALID_VALUE);
-        ProcessContext(pContext);
-        return AL_FALSE;
-    }
-
-    len = strlen(extName);
-    ptr = pContext->ExtensionList;
-    while(ptr && *ptr)
-    {
-        if(strncasecmp(ptr, extName, len) == 0 &&
-           (ptr[len] == '\0' || isspace(ptr[len])))
+        len = strlen(extName);
+        ptr = Context->ExtensionList;
+        while(ptr && *ptr)
         {
-            bIsSupported = AL_TRUE;
-            break;
-        }
-        if((ptr=strchr(ptr, ' ')) != NULL)
-        {
-            do {
-                ++ptr;
-            } while(isspace(*ptr));
+            if(strncasecmp(ptr, extName, len) == 0 &&
+               (ptr[len] == '\0' || isspace(ptr[len])))
+            {
+                bIsSupported = AL_TRUE;
+                break;
+            }
+            if((ptr=strchr(ptr, ' ')) != NULL)
+            {
+                do {
+                    ++ptr;
+                } while(isspace(*ptr));
+            }
         }
     }
 
-    ProcessContext(pContext);
-
+    ALCcontext_DecRef(Context);
     return bIsSupported;
 }
 
@@ -321,8 +384,16 @@ AL_API ALvoid* AL_APIENTRY alGetProcAddress(const ALchar *funcName)
 
 AL_API ALenum AL_APIENTRY alGetEnumValue(const ALchar *enumName)
 {
-    ALsizei i = 0;
+    ALsizei i;
 
+    for(i = 0;EffectList[i].ename;i++)
+    {
+        if(DisabledEffects[EffectList[i].type] &&
+           strcmp(EffectList[i].ename, enumName) == 0)
+            return (ALenum)0;
+    }
+
+    i = 0;
     while(enumeration[i].enumName &&
           strcmp(enumeration[i].enumName, enumName) != 0)
         i++;
